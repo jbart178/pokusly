@@ -19,7 +19,11 @@ class MainScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         with Collapsible(title='Game setup', collapsed=False):
-            yield DataTable()
+            yield DataTable(id='buyin')
+
+        with Collapsible(title="It's Over ... Pay me", collapsed=True):
+            yield DataTable(id='payout')
+            
 
     def on_button_pressed(self) -> None:
         self.exit()
@@ -32,18 +36,22 @@ class MainScreen(Screen):
         
 
     def on_data_table_cell_selected(self, event):
-        if event.coordinate.column == 4:
-            row = self.table.get_row_at(event.coordinate.row)
-            verified = check_balance(row[1], row[2])
-            if (verified): 
-                self.table.update_cell_at(event.coordinate, Text(str('VERIFIED'), style='#2dc937', justify='center'))
-            else:
-                self.table.update_cell_at(event.coordinate, Text(str('FAILED'), style='#cc3232', justify='center'))
-        elif event.coordinate.column == 5:
-            # Selected EDIT
-            row = self.table.get_row_at(event.coordinate.row)
-            self.app.push_screen(EditCellScreen(row[0], row[1], row[2]))
-        # self.draw_table()
+        if event.datatable.id == 'buyin':
+            if event.coordinate.column == 4:
+                row = self.table.get_row_at(event.coordinate.row)
+                verified = check_balance(row[1], row[2])
+                if (verified): 
+                    self.table.update_cell_at(event.coordinate, Text(str('VERIFIED'), style='#2dc937', justify='center'))
+                else:
+                    self.table.update_cell_at(event.coordinate, Text(str('FAILED'), style='#cc3232', justify='center'))
+            elif event.coordinate.column == 5:
+                # Selected EDIT
+                row = self.table.get_row_at(event.coordinate.row)
+                self.app.push_screen(EditCellScreen(row[0], row[1], row[2]))
+            # self.draw_table()
+        
+        if event.datatable.id == 'payout':
+            pass
 
     def draw_table(self) -> None:
         self.column_keys = self.table.add_columns(*ROWS[0])
