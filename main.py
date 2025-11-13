@@ -1,10 +1,11 @@
 from textual.app import App, ComposeResult
 from textual.coordinate import Coordinate
 from textual.screen import ModalScreen, Screen
-from textual.widgets import Collapsible, Label, Header, DataTable, Input, Button
+from textual.widgets import Collapsible, Label, Header, DataTable, Input, Button 
 from textual.containers import Grid
 from rich.text import Text
 from bonusly import check_balance
+import numpy as np
 
 ROWS = [
     ('Name', 'Bonusly Name (first.last)', 'Wager Amount', 'Value in Chips', '', ''),
@@ -23,30 +24,44 @@ class MainScreen(Screen):
 
         with Collapsible(title="It's Over ... Pay me", collapsed=True):
             yield DataTable(id='payout')
+            yield Grid(
+                Button('Enter Payout', id='editpayout'),
+                Button('Submit Payouts', id='submitpayouts')
+            )
             
 
-    def on_button_pressed(self) -> None:
-        self.exit()
+    def on_button_pressed(self, event) -> None:
+        if event.button.id == 'editpayout':
+            try: 
+                payout_col = list(self.payout_table.get_column_at(1))
+            except Exception:
+                payout_col = []
+            self.app.push_screen(EditPayoutScreen(list(self.buyin_table.get_column_at(0))[:-1], payout_col))
+
+        if event.button.id == 'submitpayouts':
+            pass
 
     def on_mount(self) -> None:
         self.title = "Pokusly"
         self.sub_title = "The Bonusly Payout app for Poker"
-        self.table = self.query_one(DataTable)
+        self.buyin_table = self.query_one('#buyin', DataTable)
+        self.payout_table = self.query_one('#payout', DataTable)
         self.draw_table()
+        self.draw_table_payout()
         
 
     def on_data_table_cell_selected(self, event):
         if event.datatable.id == 'buyin':
             if event.coordinate.column == 4:
-                row = self.table.get_row_at(event.coordinate.row)
+                row = self.buyin_table.get_row_at(event.coordinate.row)
                 verified = check_balance(row[1], row[2])
                 if (verified): 
-                    self.table.update_cell_at(event.coordinate, Text(str('VERIFIED'), style='#2dc937', justify='center'))
+                    self.buyin_table.update_cell_at(event.coordinate, Text(str('VERIFIED'), style='#2dc937', justify='center'))
                 else:
-                    self.table.update_cell_at(event.coordinate, Text(str('FAILED'), style='#cc3232', justify='center'))
+                    self.buyin_table.update_cell_at(event.coordinate, Text(str('FAILED'), style='#cc3232', justify='center'))
             elif event.coordinate.column == 5:
                 # Selected EDIT
-                row = self.table.get_row_at(event.coordinate.row)
+                row = self.buyin_table.get_row_at(event.coordinate.row)
                 self.app.push_screen(EditCellScreen(row[0], row[1], row[2]))
             # self.draw_table()
         
@@ -54,7 +69,7 @@ class MainScreen(Screen):
             pass
 
     def draw_table(self) -> None:
-        self.column_keys = self.table.add_columns(*ROWS[0])
+        self.column_keys = self.buyin_table.add_columns(*ROWS[0])
         self.row_keys = []
         for row in ROWS[1:]:
             verification_color = ''
@@ -69,9 +84,15 @@ class MainScreen(Screen):
             styled_row = [
                 row[0], row[1], row[2], row[3], Text(str(row[4]), style=verification_color, justify='center'), Text(str(row[5]), style='#e7b416', justify='center')
             ]
-            self.row_keys.append(self.table.add_row(*styled_row))
-        self.row_keys.append(self.table.add_row('', '', '', '', '', Text(str('ADD'), style='#2dc937', justify='center')))
-
+            self.row_keys.append(self.buyin_table.add_row(*styled_row))
+        self.row_keys.append(self.buyin_table.add_row('', '', '', '', '', Text(str('ADD'), style='#2dc937', justify='center')))
+    
+    def draw_table_payout(self, vals = []) -> None:
+        self.payout_table = self.query_one('#payout', DataTable)
+        self.payout_table.add_columns('Name', 'Chips Returned', 'Payout (pts)')
+        for row in vals:
+            self.payout_table.add_row(*row, row[-1] // CHIP_SCALING)
+        
 
 class EditCellScreen(ModalScreen):
     def __init__(
@@ -121,7 +142,7 @@ class EditCellScreen(ModalScreen):
 
                 main_screen = self.app.get_screen("main")
 
-                table = main_screen.query_one(DataTable)
+                table = main_screen.query_one('#buyin', DataTable)
 
                 if (new_player_name != self.player_name):
                     table.update_cell_at(
@@ -184,6 +205,48 @@ class QuitScreen(ModalScreen):
             self.app.exit()
         else:
             self.app.pop_screen()
+
+
+class EditPayoutScreen(ModalScreen):
+    def __init__(self, players = [], payouts = []
+                 , name=None, classes=None, id=None) -> None:
+        super().__init__(name=name, classes=classes, id=id)
+        if len(players) != len(payouts):
+            payouts = list(np.zeros(len(players)))
+        self.players = players
+        self.payouts = payouts
+
+    def compose(self) -> ComposeResult:
+        rows = []
+        for i in range(len(self.players)):
+            rows.append(Label(self.players[i], id=self.players[i].replace(' ', '').lower()+'lbl'))
+            rows.append(Input(id=self.players[i].replace(' ', '').lower()+'ipt'))
+        yield Header()
+        yield Grid(
+            *rows,
+            Button('Submit', variant='success', id='success'),
+            Button('Cancel', variant='primary', id='cancel'),
+            id='dialog'
+            )
+    def on_mount(self) -> None:
+        self.title = "Payout"
+        self.sub_title = "Enter each players chips below"
+        for i in range(len(self.players)):
+            player = self.players[i]
+            item = self.query_one('#'+player.replace(' ','').lower()+'ipt', Input)
+            item.value = str(self.payouts[i]) 
+    
+    def on_button_pressed(self, event) -> None:
+        if event.button.id == 'success':
+            main = self.app.get_screen('main')
+            table = main.query_one('#payout', DataTable)
+            table.clear()
+            for player in self.players:
+                payout = self.query_one('#'+player.replace(' ','').lower()+'ipt', Input)
+                table.add_row(player, int(payout.value), int(payout.value) // CHIP_SCALING)
+
+        self.app.pop_screen()
+
 
 class Pokusly(App):
     SCREENS = {"main": MainScreen}
