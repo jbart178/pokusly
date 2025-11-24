@@ -39,7 +39,7 @@ class MainScreen(Screen):
             self.app.push_screen(EditPayoutScreen(list(self.buyin_table.get_column_at(0))[:-1], payout_col))
 
         if event.button.id == 'submitpayouts':
-            pass
+            self.app.push_screen(PayingOutScreen(list(self.buyin_table.get_column_at(0))[:-1], list(self.buyin_table.get_column_at(1))[:-1], list(self.buyin_table.get_column_at(2))[:-1], list(self.payout_table.get_column_at(2))))
 
     def on_mount(self) -> None:
         self.title = "Pokusly"
@@ -51,7 +51,7 @@ class MainScreen(Screen):
         
 
     def on_data_table_cell_selected(self, event):
-        if event.datatable.id == 'buyin':
+        if event.cell_key.column_key.value[:-1] == 'buyin':
             if event.coordinate.column == 4:
                 row = self.buyin_table.get_row_at(event.coordinate.row)
                 verified = check_balance(row[1], row[2])
@@ -65,11 +65,14 @@ class MainScreen(Screen):
                 self.app.push_screen(EditCellScreen(row[0], row[1], row[2]))
             # self.draw_table()
         
-        if event.datatable.id == 'payout':
+        if event.cell_key.column_key.value[:-1] == 'payout':
             pass
 
     def draw_table(self) -> None:
-        self.column_keys = self.buyin_table.add_columns(*ROWS[0])
+        cols = []
+        for i, col in enumerate(ROWS[0]):
+            cols.append((col, 'buyin'+str(i)))
+        self.column_keys = self.buyin_table.add_columns(*cols)
         self.row_keys = []
         for row in ROWS[1:]:
             verification_color = ''
@@ -89,7 +92,7 @@ class MainScreen(Screen):
     
     def draw_table_payout(self, vals = []) -> None:
         self.payout_table = self.query_one('#payout', DataTable)
-        self.payout_table.add_columns('Name', 'Chips Returned', 'Payout (pts)')
+        self.payout_table.add_columns(('Name', 'payout1'), ('Chips Returned', 'payout2'), ('Payout (pts)', 'payout3'))
         for row in vals:
             self.payout_table.add_row(*row, row[-1] // CHIP_SCALING)
         
@@ -228,6 +231,7 @@ class EditPayoutScreen(ModalScreen):
             Button('Cancel', variant='primary', id='cancel'),
             id='dialog'
             )
+
     def on_mount(self) -> None:
         self.title = "Payout"
         self.sub_title = "Enter each players chips below"
@@ -240,13 +244,73 @@ class EditPayoutScreen(ModalScreen):
         if event.button.id == 'success':
             main = self.app.get_screen('main')
             table = main.query_one('#payout', DataTable)
-            table.clear()
+            payouts = []
+
+            flag = True
             for player in self.players:
                 payout = self.query_one('#'+player.replace(' ','').lower()+'ipt', Input)
-                table.add_row(player, int(payout.value), int(payout.value) // CHIP_SCALING)
+                if not payout.value.isdigit():
+                    flag = False
+                    break
+                payouts.append((player, payout.value))
+
+            if flag:       
+                table.clear()
+                for player, payout in payouts:
+                    table.add_row(player, int(payout), int(payout) // CHIP_SCALING)
 
         self.app.pop_screen()
 
+
+class PayingOutScreen(ModalScreen):
+    def __init__(self, players, bonusly_names, buyins, payouts, 
+                    name=None, classes=None, id=None) -> None:
+        super().__init__(name=name, classes=classes, id=id)
+        if len(players) != len(payouts) or len(players) != len(bonusly_names) or len(players) != len(buyins):
+            self.app.pop_screen()
+        self.players = players
+        self.buyins = buyins
+        self.payouts = payouts
+        self.bonusly_names = bonusly_names
+        self.items = []  
+        for i in range (len(players)):
+            self.items.append((players[i], bonusly_names[i], buyins[i], payouts[i]))
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield DataTable()
+        yield Button('Submit', variant='success', id='success')
+        yield Button('Cancel', variant='primary', id='cancel')
+
+    def on_mount(self) -> None:
+        self.title = "Payout"
+        self.sub_title = "Confirm the split below and then click 'Proceed'"
+        self.table = self.query_one(DataTable)
+        self.table.add_columns('Name', 'Chip Diff', *self.players)
+        chip_diff = list(np.zeros((len(self.players), len(self.players))))
+        
+        def player_diff(i):
+            tot = 0
+            for j in range(len(self.players)):
+                tot += chip_diff[j][i]
+            return tot
+
+        for i in range(len(self.players)):
+            for j in range(len(self.players)):
+                if i == j:
+                    # Same player
+                    pass
+                elif self.buyins[i] - self.payouts[i] + player_diff(i) > 0 and self.buyins[j] - self.payouts[j] + player_diff(j) < 0:
+                    value = min(self.buyins[i] - self.payouts[i] + player_diff(i), 0 - (self.buyins[j] - self.payouts[j] + player_diff(j)))
+                    chip_diff[i][j] += value
+                    chip_diff[j][i] -= value
+        
+        for i in range(len(self.players)):
+            self.table.add_row(self.players[i], player_diff(i), *chip_diff[i])
+
+    
+    def on_button_pressed(self, event) -> None:
+        self.app.pop_screen()
 
 class Pokusly(App):
     SCREENS = {"main": MainScreen}
